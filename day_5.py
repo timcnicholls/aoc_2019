@@ -22,6 +22,13 @@ class IntCodeProcessor(object):
         POSITION = 0
         IMMEDIATE = 1
 
+    OpSymbols = {
+        'add': '+',
+        'mul': '*',
+        'eq':  '==',
+        'lt':  '<',
+    }
+
     def __init__(self, program=[]):
 
         self.program = program
@@ -175,9 +182,10 @@ class IntCodeProcessor(object):
         (value_1, value_2) = self._resolve_params((input_1, input_2), param_modes)
         self.memory[output] = int(operation(value_1,value_2))
         
-        logging.debug(">>>>: {} : [{}]*[{}]=[{}] : {}*{}={}".format(
-            operation.__name__.upper(), input_1, input_2, output, 
-            value_1, value_2, self.memory[output]
+        op_symbol = self.OpSymbols[operation.__name__]
+        logging.debug(">>>>: {} : [{}]{}[{}]=[{}] : {}{}{}={}".format(
+            operation.__name__.upper(), input_1, op_symbol, input_2, output, 
+            value_1, op_symbol, value_2, self.memory[output]
         ))
 
     def _input(self, input_ptr, param_modes):
@@ -204,7 +212,7 @@ class IntCodeProcessor(object):
 
         (value, jump_ptr) = self._resolve_params((input_val, input_jump), param_modes)
         logging.debug(">>>>: JUMP_{}: [{}] val {} ins_ptr {}".format(
-            str(condition).upper(), input, value, jump_ptr,
+            str(condition).upper(), input_val, value, jump_ptr,
         ))
 
         if (value != 0) == condition:             
