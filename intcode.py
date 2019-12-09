@@ -3,7 +3,9 @@
 import enum
 import logging
 import operator
+import queue
 import sys
+import threading
 
 class IntCodeProcessor(object):
 
@@ -29,12 +31,18 @@ class IntCodeProcessor(object):
         'lt':  '<',
     }
 
-    def __init__(self, program=[]):
+    def __init__(self, program=[], name="IntCode", is_async=False):
 
         self.program = program
+        self.name = name
+        self.is_async = is_async
+
         self.memory = []
         self.inputs = []
         self.outputs = []
+        self.input_queue = None
+        self.output_queue = queue.Queue()
+        self.run_thread = None
 
         self.instructions = {
             self.Opcode.ADD:        (self._add, 4),
@@ -68,7 +76,10 @@ class IntCodeProcessor(object):
     def load_inputs(self, inputs):
 
         logging.debug("Loading inputs of length {}: {}".format(len(inputs), inputs))
-        self.inputs = inputs
+        if self.is_async:
+            [self.input_queue.put(val) for val in inputs]
+        else:
+            self.inputs = inputs
 
     def get_outputs(self):
         return self.outputs
@@ -86,7 +97,26 @@ class IntCodeProcessor(object):
 
         self.memory[2] = verb
 
+    def attach_input_queue(self, input_queue):
+
+        self.input_queue = input_queue
+
+    def get_output_queue(self):
+
+        return self.output_queue
+
     def run(self):
+
+        if self.is_async:
+            self.run_thread = threading.Thread(target=self._run)
+            self.run_thread.start()
+            logging.debug("Processor {} starting in thread".format(self.name))
+            return self.run_thread
+        else:
+            output = self._run()
+            return output
+
+    def _run(self):
         
         logging.debug('Running program of length {}'.format(self.memory_len))
         
@@ -190,7 +220,12 @@ class IntCodeProcessor(object):
 
     def _input(self, input_ptr, param_modes):
 
-        input_value = self.inputs.pop(0)
+        if self.is_async:
+            input_value = self.input_queue.get()
+            self.input_queue.task_done()
+            logging.debug("Processor {} input value {}".format(self.name, input_value))
+        else:
+            input_value = self.inputs.pop(0)
         logging.debug(">>>>: INPUT: [{}]={}".format(input_ptr, input_value))
         self.memory[input_ptr] = input_value
 
@@ -198,7 +233,12 @@ class IntCodeProcessor(object):
         
         output_value = self._resolve_params([output_param], param_modes)[0]
         logging.debug(">>>>: OUTPUT: [{}]={}".format(output_param, output_value))
-        self.outputs.append(output_value)
+
+        if self.is_async:
+            self.output_queue.put(output_value)
+            logging.debug("Processor {} output value {}".format(self.name, output_value))
+        else:
+            self.outputs.append(output_value)
 
     def _jump_true(self, input_val, input_jump, param_modes):
         
