@@ -1,4 +1,4 @@
-# AOC Day 5
+# Advent of code 2019 IntCode processor
 
 import enum
 import logging
@@ -18,11 +18,13 @@ class IntCodeProcessor(object):
         JUMP_FALSE = 6
         LESS_THAN = 7
         EQUALS = 8
+        ADJ_REL = 9
         HALT = 99
 
     class ParamMode(enum.IntEnum):
         POSITION = 0
         IMMEDIATE = 1
+        RELATIVE = 2
 
     OpSymbols = {
         'add': '+',
@@ -44,6 +46,10 @@ class IntCodeProcessor(object):
         self.output_queue = queue.Queue()
         self.run_thread = None
 
+        self.diagnostic_debug = False
+
+        self.relative_base = 0
+
         self.instructions = {
             self.Opcode.ADD:        (self._add, 4),
             self.Opcode.MULTIPLY:   (self._multiply, 4),
@@ -53,6 +59,7 @@ class IntCodeProcessor(object):
             self.Opcode.JUMP_FALSE: (self._jump_false, 3),
             self.Opcode.LESS_THAN:  (self._less_than, 4),
             self.Opcode.EQUALS:     (self._equals, 4),
+            self.Opcode.ADJ_REL:    (self._adjust_relative, 2),
             self.Opcode.HALT:       (self._halt, 1),
         }
         self.max_instruction_len = max([ins[1] for ins in self.instructions.values()])
@@ -88,6 +95,8 @@ class IntCodeProcessor(object):
 
         self.memory = self.program.copy()
         self.memory_len = len(self.memory)
+
+        self.relative_base = 0
 
     def set_noun(self, noun):
 
@@ -145,10 +154,11 @@ class IntCodeProcessor(object):
             # Extract the instruction parameter list from memory
             params = self.memory[self.instruction_ptr+1:self.instruction_ptr+instruction_len]
 
-            logging.debug("****: ptr {} mem {} opcode {} params {} param_modes {}".format(
-                self.instruction_ptr, self.memory[self.instruction_ptr], 
-                opcode, params, param_modes
-            ))
+            if self.diagnostic_debug:
+                logging.debug("****: ptr {} mem {} opcode {} params {} param_modes {}".format(
+                    self.instruction_ptr, self.memory[self.instruction_ptr], 
+                    opcode, params, param_modes
+                ))
 
             # Execute the instruction
             instruction(*params, param_modes)
@@ -178,18 +188,53 @@ class IntCodeProcessor(object):
     
         return (opcode, param_modes)
 
+    def _extend_memory(self, max_addr):
+
+        required = max_addr - len(self.memory) + 1
+        if self.diagnostic_debug:
+            logging.debug("****: Extending memory from {} by {} to {}".format(
+                len(self.memory), required, max_addr+1
+            ))
+        self.memory.extend([0] * required)
+
     def _resolve_params(self, params, param_modes):
         
         if len(params) > len(param_modes):
             raise RuntimeError("Attempting to resolve too many parameters")
 
         def resolve(param, mode):
+
+            mem_addr = 0
             if mode == self.ParamMode.POSITION:
-                return self.memory[param]
-            else:
+                mem_addr = param
+            elif mode == self.ParamMode.IMMEDIATE:
                 return param
+            elif mode == self.ParamMode.RELATIVE:
+                mem_addr = param + self.relative_base
+            else:
+                raise RuntimeError("Illegal parameter mode {} encountered".format(mode))
+
+            if mem_addr < 0:
+                raise RuntimeError("Attempted to access memory below address 0")
+
+            if mem_addr >= len(self.memory):
+                self._extend_memory(mem_addr)
+
+            return self.memory[mem_addr]
 
         return list(map(resolve, params, param_modes))
+
+    def _resolve_output(self, output, param_modes):
+
+        if param_modes[-1] == self.ParamMode.RELATIVE:
+            output = output + self.relative_base
+        else:
+            output = output 
+
+        if output >= len(self.memory):
+            self._extend_memory(output)
+
+        return output
 
     def _add(self, input_1, input_2, output, param_modes):
 
@@ -210,13 +255,15 @@ class IntCodeProcessor(object):
     def _operator(self, input_1, input_2, output, param_modes, operation):
 
         (value_1, value_2) = self._resolve_params((input_1, input_2), param_modes)
+        output = self._resolve_output(output, param_modes)
         self.memory[output] = int(operation(value_1,value_2))
         
         op_symbol = self.OpSymbols[operation.__name__]
-        logging.debug(">>>>: {} : [{}]{}[{}]=[{}] : {}{}{}={}".format(
-            operation.__name__.upper(), input_1, op_symbol, input_2, output, 
-            value_1, op_symbol, value_2, self.memory[output]
-        ))
+        logging.debug(
+            "%s: %04x: %-3s %8x %8x -> %8x", 
+            self.name, self.instruction_ptr, 
+            operation.__name__.upper(), value_1, value_2, output
+        )
 
     def _input(self, input_ptr, param_modes):
 
@@ -226,13 +273,19 @@ class IntCodeProcessor(object):
             logging.debug("Processor {} input value {}".format(self.name, input_value))
         else:
             input_value = self.inputs.pop(0)
-        logging.debug(">>>>: INPUT: [{}]={}".format(input_ptr, input_value))
+
+        input_ptr = self._resolve_output(input_ptr, [param_modes[0]])
+
+        logging.debug("%s: %04x: INP %8s %8x -> %8x", 
+            self.name, self.instruction_ptr, "[INPUT]", input_value, input_ptr)
+
         self.memory[input_ptr] = input_value
 
     def _output(self, output_param, param_modes):
         
         output_value = self._resolve_params([output_param], param_modes)[0]
-        logging.debug(">>>>: OUTPUT: [{}]={}".format(output_param, output_value))
+        logging.debug("%s: %04x: OUT %8x %8s -> %8s", 
+            self.name, self.instruction_ptr, output_value, " ", "[OUTPUT]")
 
         if self.is_async:
             self.output_queue.put(output_value)
@@ -251,15 +304,26 @@ class IntCodeProcessor(object):
     def _jump_condition(self, input_val, input_jump, param_modes, condition):
 
         (value, jump_ptr) = self._resolve_params((input_val, input_jump), param_modes)
-        logging.debug(">>>>: JUMP_{}: [{}] val {} ins_ptr {}".format(
-            str(condition).upper(), input_val, value, jump_ptr,
-        ))
+        cond_str = "JNE" if condition else "JEQ"
+
+        logging.debug("%s: %04x: %-3s %8x %8s -> %8x", 
+            self.name, self.instruction_ptr, cond_str, value, "", jump_ptr)
 
         if (value != 0) == condition:             
             self.instruction_ptr = jump_ptr - 3
 
+    def _adjust_relative(self, adj_param, param_modes):
+
+        adjust_relative = self._resolve_params([adj_param], param_modes)[0]
+
+        logging.debug("%s: %04x: ADJ %8x %8x -> %08x", 
+            self.name, self.instruction_ptr, self.relative_base, adjust_relative,
+            self.relative_base + adjust_relative)
+
+        self.relative_base += adjust_relative
+
     def _halt(self, param_modes):
-        logging.debug(">>>>: HALT")
+        logging.debug("%s: %04x: HALT", self.name, self.instruction_ptr)
         self.running = False
 
     def run_self_test_cases(self, name, test_cases, test_results=[], test_inputs=[], test_outputs=[]):
