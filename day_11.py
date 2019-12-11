@@ -99,18 +99,18 @@ class HullPaintingRobot(object):
 
         for (x, y) in self.painted_panels.keys():
 
-            if not min_x or x < min_x:
+            if min_x is None or x < min_x:
                 min_x = x
-            if not max_x or x > max_x:
+            if max_x is None or x > max_x:
                 max_x = x
-            if not min_y or y < min_y:
+            if min_y is None or y < min_y:
                 min_y = y
-            if not max_y or y > max_y:
+            if max_y is None or y > max_y:
                 max_y = y
 
         logging.info("Registration code:\n")
         
-        for y in range(0, max_y+1):
+        for y in range(min_y, max_y+1):
             row = '  '
             for x in range(min_x, max_x+1):
                 char = '#' if self.painted_panels[(x,y)] == 1 else ' '
