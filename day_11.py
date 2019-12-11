@@ -40,6 +40,7 @@ class HullPaintingRobot(object):
             self.Direction.LEFT  : (-1,  0),
             self.Direction.RIGHT : ( 1,  0),
         }
+        self.num_moves = len(self.move_ops)
 
         self.proc.load_file(program_file)
 
@@ -52,7 +53,7 @@ class HullPaintingRobot(object):
             op = 1
         else:
             raise RunTimeError("Illegal turn direction {} specified".format(turn))
-        self.direction = self.Direction((self.direction + op)%4)
+        self.direction = self.Direction((self.direction + op) % self.num_moves)
 
         self.panel_coords = tuple(sum(elem) for elem in zip(
             self.panel_coords, self.move_ops[self.direction]
@@ -71,10 +72,14 @@ class HullPaintingRobot(object):
         while self.proc.running:
 
             self.input_queue.put(current_panel_colour)
-            (colour, turn) = (self.output_queue.get(), self.output_queue.get())
-            
-            if (colour, turn) == (-1, -1):
-                break
+            try:
+                (colour, turn) = (self.output_queue.get(timeout=1.0), self.output_queue.get(timeout=1.0))
+            except queue.Empty:
+                if self.proc.running:
+                    raise RunTimeError("ROBOT processor timed out")
+                else:
+                    logging.debug("ROBOT processor halted")
+                    break
 
             logging.debug("ROBOT got instructions: colour {} turn {}".format(
                 colour, turn
@@ -111,7 +116,7 @@ class HullPaintingRobot(object):
         logging.info("Registration code:\n")
         
         for y in range(min_y, max_y+1):
-            row = '  '
+            row = '  >'
             for x in range(min_x, max_x+1):
                 char = '#' if self.painted_panels[(x,y)] == 1 else ' '
                 row = row + char
