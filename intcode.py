@@ -44,6 +44,9 @@ class IntCodeProcessor(object):
         self.outputs = []
         self.input_queue = None
         self.output_queue = queue.Queue()
+        self.input_method = None
+        self.output_method = None
+
         self.run_thread = None
 
         self.diagnostic_debug = False
@@ -113,6 +116,14 @@ class IntCodeProcessor(object):
     def get_output_queue(self):
 
         return self.output_queue
+
+    def attach_input_method(self, input_method):
+
+        self.input_method = input_method
+    
+    def attach_output_method(self, output_method):
+
+        self.output_method = output_method
 
     def run(self):
 
@@ -271,6 +282,8 @@ class IntCodeProcessor(object):
             input_value = self.input_queue.get()
             self.input_queue.task_done()
             logging.debug("Processor {} input value {}".format(self.name, input_value))
+        elif self.input_method:
+            input_value = self.input_method()
         else:
             input_value = self.inputs.pop(0)
 
@@ -290,6 +303,8 @@ class IntCodeProcessor(object):
         if self.is_async:
             self.output_queue.put(output_value)
             logging.debug("Processor {} output value {}".format(self.name, output_value))
+        elif self.output_method:
+            self.output_method(output_value)
         else:
             self.outputs.append(output_value)
 
