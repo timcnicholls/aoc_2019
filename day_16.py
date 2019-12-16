@@ -37,9 +37,6 @@ class FlawedFrequencyTransmission():
             # Loop over elements in output_vals
             for idx in range(len(output_vals)):
                 
-                # Array to construct pattern at current position
-                pos_pattern = []
-
                 # Expand the pattern according the element in the input we are at
                 pos_pattern = np.repeat(self.pattern, idx+1)
  
@@ -111,7 +108,6 @@ def test_part1(fft):
 
 def part1(fft):
 
-    fft.load_file('input/input_16.txt')
     output =fft.iterate(100)
     logging.info("Part 1: after 100 iterations, the output is: {}".format(output))
 
@@ -138,7 +134,6 @@ def test_part2(fft):
 
 def part2(fft):
 
-    fft.load_file('input/input_16.txt')
     output = fft.offset_iterate(100)
 
     logging.info("Part 2: after 100 iterations the output message is {}".format(output))
@@ -159,9 +154,11 @@ def main():
     fft = FlawedFrequencyTransmission()
     
     test_part1(fft)
-    part1(fft)
-
     test_part2(fft)
+
+    fft.load_file('input/input_16.txt')
+
+    part1(fft)
     part2(fft)
 
 if __name__ == '__main__':
