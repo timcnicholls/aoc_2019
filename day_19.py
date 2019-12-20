@@ -1,4 +1,4 @@
-# AOC Day 17
+# AOC Day 19
 import copy
 import logging
 import queue
@@ -77,7 +77,7 @@ class TractorBeamDrone():
             top_x.append(x)
             top_y.append(y)
 
-        # Git straight line top-right coordinates vs sizes
+        # Fit a straight line to the top-right coordinates vs sizes
         (slope_x, int_x) = np.polyfit(test_sizes, top_x, 1)
         (slope_y, int_y) = np.polyfit(test_sizes, top_y, 1)
 
